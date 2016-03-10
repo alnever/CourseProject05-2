@@ -1,0 +1,157 @@
+---
+title: "Analysis of The Most Dangerous Weather Events Respect To Population Health and Economics in the USA Between 1951 and 2011"
+author: "Aleksei Neverov"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+library(knitr)
+library(ggplot2)
+library(reshape2)
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.path="figure/")
+```
+
+## Synopsis
+
+In this report we aim to describe the most dangerous weather events in the United States according the data collected by the U.S. National Oceanic and Atmospheric Administration (NOAA) between 1951 and 2011. We're focused on two aspects describing the damage from the storms and other weather events: harm caused population health's, including fatalities and injuries, and economic consequences. From these data, we found that some weather events are more dangerous for public health and economics than other because of damage they cause. 
+
+## Data Processing
+
+From the [NOAA Storm Database](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2) we obtained data on storm and weather evernts across the United States collected between 1951 and 2011.
+
+```{r}
+fileName <- "repdata_data_StormData.csv.bz2"
+dsFileName <- "repdata_data_StormData.csv"
+if (!file.exists(fileName)) {
+      fileUrl <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"      
+      download.file(fileUrl, fileName)
+      if (!file.exists(dsFileName)) {
+            unzip(fileName)
+      }
+}
+
+storms <- read.csv(dsFileName)
+dim(storms)
+names(storms)
+```
+
+According [National Weather Service Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf) and [National Climatic Data Center Storm Events FAQ](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf) we chose the variable of the dataset most intresting for our analysis:
+
+```{r computetime}
+storms <- storms[,c("EVTYPE","FATALITIES","INJURIES","PROPDMG","PROPDMGEXP", "CROPDMG","CROPDMGEXP")]
+storm_names <- names(storms)
+```
+
+For analysis we chose `r length(storm_names)` variables:
+
+* `r storm_names[1]` contains names of weather evernts;
+* `r storm_names[2]` contains number of fatalities for each event;
+* `r storm_names[3]` contains number of injuries for each event;
+* `r storm_names[4]` and `r storm_names[5]` describe the property damage of the event;
+* `r storm_names[6]` and `r storm_names[7]` describe the crop damage of the event.
+
+Variables `r storm_names[2]` and `r storm_names[3]` together describe the damage for the population health so we decided to summarize them to estimate the total number of victims with fatalities and injuries for each event.
+
+```{r}
+storms$Total.Victims <- storms$FATALITIES + storms$INJURIES
+```
+
+Variable `r storm_names[4]`, `r storm_names[5]`, `r storm_names[6]` and `r storm_names[7]` describe the economic damage of the event herewith `r storm_names[5]` and `r storm_names[7]` contain the magnitudes for `r storm_names[4]`:
+
+```{r}
+names(table(storms$PROPDMGEXP))
+names(table(storms$CROPDMGEXP))
+```
+
+Variables `r storm_names[5]` and `r storm_names[7]` contain are signs, letters and numbers as their values. To calculate the total economic damage we converted these signs in numbers according [results of this analysis](https://rstudio-pubs-static.s3.amazonaws.com/58957_37b6723ee52b455990e149edde45e5b6.html). We decided to use these results because of lacks in the [National Weather Service Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)
+
+```{r}
+## Convert PROPDMGEXP into characters
+storms$PROPDMGEXP <- as.character(storms$PROPDMGEXP)
+
+## Replace PROPDMGEXP with numbers
+storms$PROPDMGEXP[storms$PROPDMGEXP %in% c("0":"8")] <- 2
+storms$PROPDMGEXP[storms$PROPDMGEXP == "-" | storms$PROPDMGEXP == "?" | storms$PROPDMGEXP == ""] <- 0
+storms$PROPDMGEXP[storms$PROPDMGEXP == "+"] <- 1
+storms$PROPDMGEXP[storms$PROPDMGEXP == "h" | storms$PROPDMGEXP == "H"] <- 3
+storms$PROPDMGEXP[storms$PROPDMGEXP == "k" | storms$PROPDMGEXP == "K"] <- 4
+storms$PROPDMGEXP[storms$PROPDMGEXP == "m" | storms$PROPDMGEXP == "M"] <- 7
+storms$PROPDMGEXP[storms$PROPDMGEXP == "B"] <- 10
+
+## Convert PROPDMGEXP into numeric
+storms$PROPDMGEXP <- as.numeric(storms$PROPDMGEXP)
+
+## Calculate property damade in dollars
+storms$PROPDMG <- storms$PROPDMG * 10 ^ (storms$PROPDMGEXP-1) * ifelse(storms$PROPDMGEXP == 0,0,1)
+
+## Convert CROPDMGEXP into characters
+storms$CROPDMGEXP <- as.character(storms$CROPDMGEXP)
+
+## Replace CROPDMGEXP with numbers
+storms$CROPDMGEXP[storms$CROPDMGEXP %in% c("0":"8")] <- 2
+storms$CROPDMGEXP[storms$CROPDMGEXP == "-" | storms$CROPDMGEXP == "?" | storms$CROPDMGEXP == ""] <- 0
+storms$CROPDMGEXP[storms$CROPDMGEXP == "+"] <- 1
+storms$CROPDMGEXP[storms$CROPDMGEXP == "h" | storms$CROPDMGEXP == "H"] <- 3
+storms$CROPDMGEXP[storms$CROPDMGEXP == "k" | storms$CROPDMGEXP == "K"] <- 4
+storms$CROPDMGEXP[storms$CROPDMGEXP == "m" | storms$CROPDMGEXP == "M"] <- 7
+storms$CROPDMGEXP[storms$CROPDMGEXP == "B"] <- 10
+
+## Convert CROPDMGEXP into numeric
+storms$CROPDMGEXP <- as.numeric(storms$CROPDMGEXP)
+
+## Calculate crop damade in dollars
+storms$CROPDMG <- storms$CROPDMG * 10 ^ (storms$CROPDMGEXP-1) * ifelse(storms$CROPDMGEXP == 0,0,1)
+
+## Calculate total economic damage
+
+storms$Total.Damage <- storms$PROPDMG + storms$CROPDMG
+```
+
+As result we got the dataset with the following structure prepared for the analysis
+```{r}
+str(storms)
+head(storms)
+```
+
+## Results
+
+### The Most Harmful Weather Events Respect To Population Health
+
+To define the most harmful weather event in the U.S. between 1951 and 2011 we aggregated data about victims, including fatalities and injuries, by event types. Thereafter we sorted the data and selected the very first 10 event types:
+
+```{r}
+healthDmg <- aggregate(storms[c("Total.Victims","FATALITIES","INJURIES")], by=storms["EVTYPE"],FUN = sum)
+healthDmg <- healthDmg[order(-healthDmg$Total.Victims, -healthDmg$FATALITIES, -healthDmg$INJURIES),]
+healthDmg <- healthDmg[1:10,]
+healthDmg
+```
+
+To demonstrate the the difference between the top ten harmful weather events we prepared the temporary dataset and drew a plot.
+
+```{r}
+healthDmg2 <- melt(healthDmg[,c('EVTYPE','Total.Victims','INJURIES','FATALITIES')],id.vars = 1)
+```
+
+```{r}
+g <- ggplot(healthDmg2,aes(x = EVTYPE,y = value)) + 
+      geom_bar(aes(fill = variable),position = "dodge",stat = "identity") +
+      theme(axis.text.x = element_text(angle=60, hjust = 1)) +
+      xlab("Weather Events") +
+      ylab("Number of Victims") +
+      labs(title = "Population Health Damage due the Weather Events in U.S. (1951-2011)")+
+      guides(fill = guide_legend(title = "Damage type"))
+print(g)
+```
+
+It is obviously from the plot, that the most harmful event respet to population live and health in the U.S. is `r as.character(healthDmg[1,"EVTYPE"])`. For this weather event we calculated exactly numbers of victims.
+
+```{r}
+mostHarmful <- healthDmg[1,]
+mostHarmful
+```
+
+According results of the an analysis we can concluse that the most harmful weather event respect to population health in U.S. is `r as.character(mostHarmful[1,"EVTYPE"])`. Between 1951 and 2011 there was `r mostHarmful[1,"Total.Victims"]` victims, including `r mostHarmful[1,"FATALITIES"]` fatalities and `r mostHarmful[1,"INJURIES"]` injuries.
+
+### The Weather Events Having The Greatest Economic Consequences
